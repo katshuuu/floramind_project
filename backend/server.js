@@ -44,7 +44,9 @@ if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !pr
 }
 
 // Создаем папки (оставляем для временных файлов, но они больше не нужны для хранения)
-fs.ensureDirSync('./temp');
+const path = require('path');
+const tempDir = path.join('/tmp', 'temp'); // используем системную временную папку
+fs.mkdirSync(tempDir, { recursive: true });
 
 // URL для YandexART API
 const YANDEX_ART_URL = 'https://llm.api.cloud.yandex.net/foundationModels/v1/imageGenerationAsync';
