@@ -1,2 +1,0 @@
-# FloraMind
-# floramind_flowerbot
