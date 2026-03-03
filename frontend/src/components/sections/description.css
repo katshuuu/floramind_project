@@ -1,0 +1,58 @@
+
+.ddescription{
+    position:relative;
+    background:#ffff;
+    margin:0 auto;
+    height:40rem;
+    display:flex;
+    justify-content: center;
+
+}
+
+.dleaves_left,
+.dleaves_right{
+    position: absolute;
+    height: auto;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.dleaves_left{
+    left:0;
+    bottom:0;
+    width:23rem;
+}
+
+.dleaves_right{
+    right:0;
+    bottom:0;
+    width:27rem;
+
+}
+.dtext-block{
+    display:flex;
+    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    max-width:50rem !important;
+    padding-top:5rem;
+    gap: 2rem;
+}
+
+.dtitle{
+    font-family: var(--second-family) !important;
+    font-size:2.4rem !important;
+    color:black;
+}
+
+.dsub-title{
+    display:flex;
+   align-items: center;
+    font-family: var(--font-family);
+    max-width:120rem;
+    font-size:1.8rem;
+    line-height: 1.5;
+    color:black;
+
+}

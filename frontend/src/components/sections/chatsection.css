@@ -1,0 +1,108 @@
+@import '../../styles/variables.css';
+.chatsection{
+    background: linear-gradient(150deg, #f4a1af 0%, #f2f1ca 100%);;
+    max-width:144rem;
+    height:70rem;
+    position:relative;
+}
+.leaves_1{
+    position: absolute;
+    width:25rem;
+    bottom:0;
+    left:0;
+}
+.leaves_2{
+    position: absolute;
+    width:27rem;
+    bottom:0;
+    left:25%;
+}
+.leaves_3{
+    position: absolute;
+    width:27rem;
+    bottom:0;
+    left:40%;
+}
+.leaves_4{
+    position: absolute;
+    width:27rem;
+    bottom:0;
+    right:30%;
+}
+.leaves_5{
+    position: absolute;
+    width:29rem;
+    right:0;
+    bottom:0;
+}
+.chat-wrap{
+    background: #ffff;
+    border: 1px solid #dbd9b0;
+    border-radius: 50px;
+    max-width: 130rem;
+    max-height: 80rem;
+    display:flex;
+    justify-content: center;
+    align-items: center;
+    padding:10rem 6rem;
+    margin: 10rem 20rem;
+    gap:18rem;
+
+}
+.chat-logo{
+    max-width:24rem;
+
+}
+
+.ai-circle {
+    position: absolute;
+    top: -5rem;      
+    right: -5rem;   
+    width: 6rem;
+    height: 6rem;
+    border-radius: 50%;  
+    background: #f7f5cf; 
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+}
+.logo-ai {
+    font-family: var(--second-family);
+    font-weight: 400;
+    font-size: 3rem;
+    letter-spacing: 0.04em;
+    color: #324e35;
+    line-height: 1;
+}
+.logo-container{
+    position: relative;  /* важно! */
+    display: inline-block;
+    width: fit-content;
+    margin-top:3rem;
+}
+.chat-text-wrap{
+    background: #ffff;
+    max-width:41rem;
+    display:flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    gap:2rem;
+    margin-top:2rem;
+}
+.chat-title{
+    font-family: var(--font-family);
+    font-weight: 600;
+    font-size: 2rem;
+    text-align: center;
+    color: #000;
+}
+.chat-subtitle{
+    font-family: var(--font-family);
+    font-weight: 400;
+    font-size: 1.8rem;
+    text-align: center;
+    color: #000;
+}
+

@@ -1,0 +1,100 @@
+.prompts{
+    position: relative;
+    width: 100%;
+    max-width: 144rem; 
+    margin: 0 auto;
+    margin-bottom:8rem;
+    background: #ffff;
+    min-height: 78.6rem; 
+}
+.leaves_lt,
+.leaves_lb,
+.leaves_rt,
+.leaves_rb {
+    position: absolute;
+    opacity: 1;
+    height: auto;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.leaves_lt {
+    left: 0;
+    top: 0;
+    width: 27rem; 
+}
+
+.leaves_lb {
+    left: 0;
+    bottom: 0;
+    width: 27rem; 
+}
+
+.leaves_rt {
+    right: 0;
+    top: 0;
+    width: 26.5rem; 
+}
+
+.leaves_rb {
+    right: 0;
+    bottom: 0;
+    width: 27rem; 
+}
+.container{
+    display:flex;
+    flex-direction: column;
+    justify-content: center;
+    gap:3rem;
+}
+
+.card-photos{
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 1rem;
+    flex-wrap: wrap;
+    max-width: 100rem;
+
+     margin: 0 auto  -3rem auto;
+    padding: 0 15rem;
+}
+.prompt1-img{
+    position:absolute;
+    top:20rem;
+    left:17rem;
+    width:31rem;
+    height:25rem;
+}
+.prompt2-img{
+    position:absolute;
+    top:16rem;
+    left:54rem;
+    width:31rem;
+    height:29rem;
+}
+.prompt3-img{
+    position:absolute;
+    top:14rem;
+    right:22rem;
+    width:31rem;
+    height:31rem;
+}
+.h2_title{
+    max-width:35rem;
+    height:auto;
+    width:auto;
+    padding-left:15rem;
+    padding-top:6rem;
+}
+.card-content{
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 3rem;
+    flex-wrap: wrap;
+    max-width: 125rem;
+    margin: 0 auto;
+    padding: 0 2rem;
+    padding-right: 7rem;
+}

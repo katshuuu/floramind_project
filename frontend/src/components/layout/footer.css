@@ -1,0 +1,16 @@
+.footer{
+    max-width:144rem;
+    height:6rem;
+    backdrop-filter: blur(19.799999237060547px);
+    background: #344609;
+    display:flex;
+    justify-content: center;
+    align-items: center;
+}
+.footer-text{
+    font-family: var(--font-family);
+    font-weight: 400;
+    font-size: 1.4rem;
+    color:#ffff;
+    z-index:1;
+}

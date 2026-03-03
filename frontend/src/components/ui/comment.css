@@ -1,0 +1,64 @@
+.comment-container{
+    background: #ffff;
+    border: 1px solid #bfbfbf;
+    border-radius: 3rem;
+    width: 80rem;
+    height: 20rem;;
+}
+.com-content{
+    display:flex;
+    flex-direction: column;
+    gap:2rem;
+    padding:3.5rem 3rem;
+}
+
+.profile-info-main{
+    display:flex;
+    justify-content: space-between;
+    max-height:4rem;
+}
+.profile-left{
+    display:flex;
+    justify-content: center;
+    gap:1rem;
+    height:5rem;
+}
+.profile-photo{
+    height: 5rem;
+    width:5rem;
+    bottom:1rem;
+}
+.profile-text{
+    display:flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: left;
+    gap:0.5rem;
+}
+.profile-title{
+    font-family: var(--font-family);
+    font-weight: 600;
+    font-size: 1.8rem;
+    color: #000;
+}
+.profile-subtitle{
+    font-family: var(--font-family);
+    font-weight: 400;
+    font-size: 1.6rem;
+    color: #8a8a8a;
+}
+.main-comment{
+    max-width:74rem
+}
+.comment-text{
+    font-family: var(--font-family);
+    font-weight: 400;
+    font-size: 1.6rem;
+    color: #000;
+}
+
+.star{
+    width:2rem;
+    height: auto;
+    padding:0.1rem 0.1rem;
+}

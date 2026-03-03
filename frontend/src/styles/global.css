@@ -1,0 +1,21 @@
+:root{
+  --font-family: "Inter", sans-serif;
+  --second-family: "Calistoga", sans-serif;
+  --third-family: "Pacifico", sans-serif;
+}
+
+*{
+    margin:0;
+    padding:0;
+
+}
+
+html {
+    font-size:62.5%;
+    overflow-x: hidden;
+}
+
+body{
+    font-size:1.6rem;
+    overflow-x: hidden;
+}
