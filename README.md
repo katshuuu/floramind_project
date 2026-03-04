@@ -59,4 +59,5 @@ node server.js
 
 ---
 
-# flora-project
+# Ссылка на рабочий проект: 
+https://katshuuu-floramind-project-d6ba.twc1.net
