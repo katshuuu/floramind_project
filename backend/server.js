@@ -8,6 +8,9 @@ const { v4: uuidv4 } = require('uuid');
 const cloudinary = require('cloudinary').v2; // Добавляем Cloudinary
 
 const app = express();
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'healthy' });
+});
 
 // Middleware
 app.use(cors({
