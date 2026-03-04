@@ -407,6 +407,7 @@ setInterval(() => {
     }
 }, 60 * 60 * 1000);
 
+
 // Корневой маршрут - отдаем index.html из папки public
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
