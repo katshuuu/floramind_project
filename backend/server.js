@@ -25,9 +25,14 @@ app.use(express.static('public'));
 // Конфигурация Yandex Cloud
 const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID;
 const YANDEX_API_KEY = process.env.YANDEX_API_KEY;
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001; // Измените с 3000 на 3001
+const HOST = '0.0.0.0'; // Добавьте эту строку
 const SITE_URL = process.env.SITE_URL || `http://localhost:${PORT}`;
 
+// Добавьте маршрут для проверки здоровья (healthcheck)
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+});
 // Конфигурация Cloudinary
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -407,10 +412,11 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Запуск сервера
-app.listen(PORT, () => {
-    console.log(`\n🚀 FloraAI server running on http://localhost:${PORT}`);
-    console.log(`📝 Test endpoint: http://localhost:${PORT}/api/test`);
-    console.log(`📝 Cloudinary test: http://localhost:${PORT}/api/test-cloudinary`);
-    console.log(`🔗 YandexART API: ${YANDEX_ART_URL}\n`);
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 FloraAI server running on http://${HOST}:${PORT}`);
+  console.log(`📝 Local access: http://localhost:${PORT}`);
+  console.log(`📝 Network access: http://0.0.0.0:${PORT}`);
+  console.log(`📝 Test endpoint: http://localhost:${PORT}/api/test`);
+  console.log(`📝 Cloudinary test: http://localhost:${PORT}/api/test-cloudinary`);
+  console.log(`🔗 YandexART API: ${YANDEX_API_KEY ? 'Configured' : 'Not configured'}`);
 });
