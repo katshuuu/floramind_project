@@ -1,423 +1,864 @@
+// server.js
 require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const fs = require('fs-extra');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const cloudinary = require('cloudinary').v2; // Добавляем Cloudinary
+const { query, transaction } = require('./db');
+const cloudinary = require('cloudinary').v2;
 
 const app = express();
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'healthy' });
-});
 
-// Middleware
+/*
+========================
+MIDDLEWARE
+========================
+*/
+
 app.use(cors({
-    origin: ['http://127.0.0.1:5501', 'http://localhost:5501', 'http://localhost:3000', 'https://floramind-7idk.onrender.com'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    origin: [
+        'http://127.0.0.1:5501',
+        'http://localhost:5501',
+        'http://localhost:3000',
+        process.env.SITE_URL
+    ].filter(Boolean)
 }));
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
-// Конфигурация Yandex Cloud
-const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID;
-const YANDEX_API_KEY = process.env.YANDEX_API_KEY;
-const PORT = process.env.PORT || 3001; // Измените с 3000 на 3001
-const HOST = '0.0.0.0'; // Добавьте эту строку
+/*
+========================
+CONFIG
+========================
+*/
+
+const PORT = process.env.PORT || 3000;
 const SITE_URL = process.env.SITE_URL || `http://localhost:${PORT}`;
 
-// Добавьте маршрут для проверки здоровья (healthcheck)
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
-});
-// Конфигурация Cloudinary
+const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID;
+const YANDEX_API_KEY = process.env.YANDEX_API_KEY;
+
+if (!YANDEX_FOLDER_ID || !YANDEX_API_KEY) {
+    console.error('❌ Yandex credentials missing');
+    process.exit(1);
+}
+
+/*
+========================
+CLOUDINARY
+========================
+*/
+
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Проверка конфигурации
-if (!YANDEX_FOLDER_ID || !YANDEX_API_KEY) {
-    console.error('❌ Yandex Cloud credentials not found in .env file');
-    process.exit(1);
-}
+/*
+========================
+TEMP FOLDER
+========================
+*/
 
-if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-    console.error('❌ Cloudinary credentials not found in .env file');
-    process.exit(1);
-}
+fs.ensureDirSync('./temp');
 
-// Создаем папки (оставляем для временных файлов, но они больше не нужны для хранения)
-const tempDir = path.join('/tmp', 'temp'); // используем системную временную папку
-fs.mkdirSync(tempDir, { recursive: true });
+/*
+========================
+YANDEX ART GENERATION
+========================
+*/
 
-// URL для YandexART API
 const YANDEX_ART_URL = 'https://llm.api.cloud.yandex.net/foundationModels/v1/imageGenerationAsync';
 
-// Хранилище для запросов и результатов
-const generationRequests = new Map();
-const orderStatuses = new Map();
-
-// Функция ожидания генерации изображения
 async function waitForImage(operationId) {
-    console.log(`⏳ Ожидание генерации, ID операции: ${operationId}`);
-    
     const maxAttempts = 60;
+
     for (let i = 0; i < maxAttempts; i++) {
-        try {
-            const response = await axios.get(
-                `https://operation.api.cloud.yandex.net/operations/${operationId}`,
-                {
-                    headers: {
-                        'Authorization': `Api-Key ${YANDEX_API_KEY}`
-                    }
-                }
-            );
+        const response = await axios.get(
+            `https://operation.api.cloud.yandex.net/operations/${operationId}`,
+            { headers: { Authorization: `Api-Key ${YANDEX_API_KEY}` } }
+        );
 
-            if (response.data.done) {
-                if (response.data.error) {
-                    throw new Error(`Ошибка генерации: ${response.data.error.message}`);
-                }
-                
-                if (response.data.response && response.data.response.image) {
-                    return response.data.response.image;
-                }
-                throw new Error('Ответ не содержит изображение');
+        if (response.data.done) {
+            if (response.data.response?.image) {
+                return response.data.response.image;
             }
-
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        } catch (error) {
-            console.error('❌ Ошибка при проверке статуса:', error.message);
-            throw error;
+            throw new Error('Image missing');
         }
+
+        await new Promise(r => setTimeout(r, 1000));
     }
-    
-    throw new Error('Превышено время ожидания генерации');
+
+    throw new Error('Generation timeout');
 }
 
-// Генерация изображения через YandexART
 async function generateWithYandexART(prompt) {
-    try {
-        console.log('🎨 Начинаем генерацию изображения...');
-        console.log('📝 Промпт:', prompt);
-
-        const requestBody = {
-            modelUri: `art://${YANDEX_FOLDER_ID}/yandex-art/latest`,
-            messages: [
-                {
-                    text: prompt,
-                    weight: 1
-                }
-            ],
-            generationOptions: {
-                seed: Math.floor(Math.random() * 1000000),
-                format: "JPEG",
-                aspectRatio: {
-                    widthRatio: 1,
-                    heightRatio: 1
-                }
-            }
-        };
-
-        const response = await axios.post(YANDEX_ART_URL, requestBody, {
-            headers: {
-                'Authorization': `Api-Key ${YANDEX_API_KEY}`,
-                'Content-Type': 'application/json'
-            },
-            timeout: 10000
-        });
-
-        if (response.data.id) {
-            return await waitForImage(response.data.id);
-        } else if (response.data.image) {
-            return response.data.image;
-        } else {
-            throw new Error('Неожиданный формат ответа от API');
+    const body = {
+        modelUri: `art://${YANDEX_FOLDER_ID}/yandex-art/latest`,
+        messages: [{ text: prompt, weight: 1 }],
+        generationOptions: {
+            seed: Math.floor(Math.random() * 100000),
+            format: "JPEG",
+            aspectRatio: { widthRatio: 1, heightRatio: 1 }
         }
+    };
 
-    } catch (error) {
-        console.error('❌ Ошибка генерации:', error);
-        throw error;
-    }
+    const response = await axios.post(YANDEX_ART_URL, body, {
+        headers: {
+            Authorization: `Api-Key ${YANDEX_API_KEY}`,
+            'Content-Type': 'application/json'
+        }
+    });
+
+    return await waitForImage(response.data.id);
 }
 
-// Сохранение изображения в Cloudinary (вместо диска)
-async function saveImageToCloudinary(base64Image, requestId) {
-    try {
-        // Очищаем base64 от префикса data:image/jpeg;base64, если он есть
-        const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
-        
-        console.log('☁️ Загружаем изображение в Cloudinary...');
-        
-        // Загружаем в Cloudinary
-        const result = await cloudinary.uploader.upload(`data:image/jpeg;base64,${base64Data}`, {
-            public_id: `${requestId}_${Date.now()}`,
-            folder: 'floramind',
-            format: 'jpg',
-            transformation: [
-                { quality: 'auto', fetch_format: 'auto' } // Автоматическая оптимизация
-            ]
-        });
-        
-        console.log(`✅ Изображение загружено в Cloudinary: ${result.secure_url}`);
-        
-        // Возвращаем безопасный URL от Cloudinary
-        return result.secure_url;
-        
-    } catch (error) {
-        console.error('❌ Ошибка загрузки в Cloudinary:', error);
-        
-        // Fallback: пробуем сохранить локально если Cloudinary не работает
-        try {
-            console.log('⚠️ Пробуем сохранить локально как запасной вариант...');
-            const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
-            const imageBuffer = Buffer.from(base64Data, 'base64');
-            
-            const filename = `${requestId}_${Date.now()}.jpg`;
-            const filepath = path.join(__dirname, 'public', 'generated', filename);
-            
-            await fs.ensureDir(path.join(__dirname, 'public', 'generated'));
-            await fs.writeFile(filepath, imageBuffer);
-            
-            console.log(`✅ Изображение сохранено локально: ${filename}`);
-            return `${SITE_URL}/generated/${filename}`;
-        } catch (fallbackError) {
-            console.error('❌ Ошибка локального сохранения:', fallbackError);
-            throw error;
+async function saveImage(base64, requestId) {
+    const base64Data = base64.replace(/^data:image\/\w+;base64,/, '');
+    
+    const result = await cloudinary.uploader.upload(
+        `data:image/jpeg;base64,${base64Data}`,
+        {
+            folder: "floramind",
+            public_id: `${requestId}_${Date.now()}`
         }
+    );
+
+    return result.secure_url;
+}
+// Функция для генерации и сохранения изображения
+async function generateAndSaveImage(prompt, requestId, token) {
+    try {
+        const base64 = await generateWithYandexART(prompt);
+        const imageUrl = await saveImage(base64, requestId);
+
+        await query(
+            `UPDATE bouquets
+             SET image_url = $1,
+                 generation_status = 'completed'
+             WHERE generation_request_id = $2`,
+            [imageUrl, requestId]
+        );
+
+        console.log(`✅ Изображение сохранено для заказа ${token}: ${imageUrl}`);
+    } catch (err) {
+        console.error('❌ Ошибка сохранения изображения:', err);
+        await query(
+            `UPDATE bouquets
+             SET generation_status = 'failed'
+             WHERE generation_request_id = $1`,
+            [requestId]
+        );
     }
 }
+/*
+========================
+ГЕНЕРАЦИЯ ИНДИВИДУАЛЬНОЙ ССЫЛКИ
+========================
+*/
 
-// Сохранение промпта
-app.post('/api/save-prompt', (req, res) => {
+app.post('/api/create-session', async (req, res) => {
     try {
-        const { requestId, prompt, orderId } = req.body;
+        const { telegramUserId, telegramUsername } = req.body;
         
-        generationRequests.set(requestId, {
-            prompt: prompt,
-            orderId: orderId,
-            status: 'pending',
-            timestamp: Date.now()
+        const shareToken = uuidv4();
+        
+        const result = await query(
+            `INSERT INTO sessions 
+             (share_token, telegram_user_id, telegram_username, status)
+             VALUES ($1, $2, $3, 'pending')
+             RETURNING id, share_token`,
+            [shareToken, telegramUserId || null, telegramUsername || null]
+        );
+        
+        const sessionId = result.rows[0].id;
+        const token = result.rows[0].share_token;
+        const shareUrl = `${SITE_URL}/quiz/${token}`;
+        
+        res.json({
+            success: true,
+            sessionId,
+            token,
+            shareUrl
         });
         
-        console.log(`✅ Saved prompt for request ${requestId}`);
-        res.json({ success: true, requestId: requestId });
-        
-    } catch (error) {
-        console.error('❌ Error saving prompt:', error);
-        res.status(500).json({ error: 'Internal server error' });
+    } catch (err) {
+        console.error('❌ Ошибка создания сессии:', err);
+        res.status(500).json({ error: 'Не удалось создать сессию' });
     }
 });
 
-// Запуск генерации
+/*
+========================
+СОХРАНЕНИЕ ОТВЕТОВ ТЕСТА
+========================
+*/
+
+app.post('/api/save-answers', async (req, res) => {
+    try {
+        const { token, answers } = req.body;
+
+        await query(
+            `UPDATE sessions SET
+             occasion = $1,
+             recipient_person_type = $2,
+             mood = $3,
+             color_preferences = $4,
+             flower_preferences = $5,
+             budget_range = $6,
+             note_text = $7,
+             status = 'completed',
+             completed_at = NOW()
+             WHERE share_token = $8`,
+            [
+                answers.occasion,
+                answers.forWhom,
+                answers.mood || 'happy',
+                answers.colors,
+                answers.favoriteFlowersText,
+                answers.budget || 'medium',
+                answers.noteText,
+                token
+            ]
+        );
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Ошибка сохранения ответов:', err);
+        res.status(500).json({ error: 'Ошибка сохранения' });
+    }
+});
+
+/*
+========================
+ГЕНЕРАЦИЯ ИЗОБРАЖЕНИЯ
+========================
+*/
+
 app.post('/api/generate', async (req, res) => {
     try {
-        const { prompt, orderId, requestId } = req.body;
-        
-        if (!prompt) {
-            return res.status(400).json({ error: 'Промпт обязателен' });
+        const { prompt, requestId, token } = req.body;
+        const id = requestId || uuidv4();
+
+        // Получаем session_id по токену
+        const sessionResult = await query(
+            `SELECT id FROM sessions WHERE share_token = $1`,
+            [token]
+        );
+
+        if (!sessionResult.rows.length) {
+            return res.status(404).json({ error: 'Сессия не найдена' });
         }
 
-        const genRequestId = requestId || uuidv4();
-        
-        // Обновляем статус
-        if (generationRequests.has(genRequestId)) {
-            const request = generationRequests.get(genRequestId);
-            request.status = 'processing';
-            generationRequests.set(genRequestId, request);
-        } else {
-            generationRequests.set(genRequestId, {
-                prompt,
-                orderId,
-                status: 'processing',
-                timestamp: Date.now()
-            });
-        }
+        const sessionId = sessionResult.rows[0].id;
 
-        // Генерируем изображение
-        const imageBase64 = await generateWithYandexART(prompt);
-        
-        // Сохраняем в Cloudinary (вместо диска)
-        const imageUrl = await saveImageToCloudinary(imageBase64, genRequestId);
-        
-        // Обновляем статус
-        const request = generationRequests.get(genRequestId);
-        request.status = 'completed';
-        request.imageUrl = imageUrl;
-        request.completedAt = Date.now();
-        generationRequests.set(genRequestId, request);
+        // Сохраняем информацию о генерации
+        await query(
+            `INSERT INTO bouquets
+             (session_id, prompt_text, generation_request_id, generation_status)
+             VALUES($1, $2, $3, 'pending')
+             RETURNING id`,
+            [sessionId, prompt, id]
+        );
 
-        // Обновляем статус заказа
-        if (orderId) {
-            orderStatuses.set(orderId, {
-                status: 'completed',
-                imageUrl: imageUrl,
-                completedAt: Date.now()
-            });
-        }
+        // Запускаем генерацию (не ждем)
+        generateAndSaveImage(prompt, id, token).catch(console.error);
 
         res.json({
             success: true,
-            requestId: genRequestId,
-            imageUrl: imageUrl,
-            orderId: orderId
+            requestId: id,
+            message: 'Генерация запущена'
         });
 
-    } catch (error) {
-        console.error('❌ Ошибка генерации:', error);
-        
-        res.status(500).json({ 
-            error: 'Ошибка генерации изображения',
-            details: error.message
-        });
+    } catch (err) {
+        console.error('❌ Ошибка генерации:', err);
+        res.status(500).json({ error: 'Ошибка генерации' });
     }
 });
 
-// Проверка статуса генерации
-app.get('/api/generation-status/:requestId', (req, res) => {
+async function generateAndSaveImage(prompt, requestId, token) {
+    try {
+        const base64 = await generateWithYandexART(prompt);
+        const imageUrl = await saveImage(base64, requestId);
+
+        await query(
+            `UPDATE bouquets
+             SET image_url = $1,
+                 generation_status = 'completed'
+             WHERE generation_request_id = $2`,
+            [imageUrl, requestId]
+        );
+
+        console.log(`✅ Изображение сохранено: ${imageUrl}`);
+    } catch (err) {
+        console.error('❌ Ошибка сохранения изображения:', err);
+        await query(
+            `UPDATE bouquets
+             SET generation_status = 'failed'
+             WHERE generation_request_id = $1`,
+            [requestId]
+        );
+    }
+}
+
+/*
+========================
+ПОЛУЧЕНИЕ РЕЗУЛЬТАТОВ СЕССИИ
+========================
+*/
+
+app.get('/api/session-results/:token', async (req, res) => {
+    try {
+        const { token } = req.params;
+
+        const result = await query(
+            `SELECT s.*, 
+                    b.id as bouquet_id, 
+                    b.image_url, 
+                    b.prompt_text,
+                    b.generation_status
+             FROM sessions s
+             LEFT JOIN bouquets b ON s.id = b.session_id
+             WHERE s.share_token = $1
+             ORDER BY b.created_at DESC`,
+            [token]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Сессия не найдена' });
+        }
+
+        const session = {
+            ...result.rows[0],
+            bouquets: result.rows
+                .filter(row => row.bouquet_id !== null)
+                .map(row => ({
+                    id: row.bouquet_id,
+                    imageUrl: row.image_url,
+                    promptText: row.prompt_text,
+                    status: row.generation_status
+                }))
+        };
+
+        // Записываем клик по ссылке
+        await query(
+            `INSERT INTO link_clicks(session_id, ip_address, user_agent, referer)
+             VALUES($1, $2, $3, $4)`,
+            [session.id, req.ip, req.headers['user-agent'], req.get('Referer')]
+        );
+
+        res.json(session);
+    } catch (err) {
+        console.error('❌ Ошибка получения результатов:', err);
+        res.status(500).json({ error: 'Ошибка загрузки' });
+    }
+});
+
+/*
+========================
+СТАТУС ГЕНЕРАЦИИ
+========================
+*/
+
+app.get('/api/generation-status/:requestId', async (req, res) => {
     try {
         const { requestId } = req.params;
-        
-        const request = generationRequests.get(requestId);
-        
-        if (!request) {
-            return res.status(404).json({ error: 'Request not found' });
+
+        const result = await query(
+            `SELECT generation_status as status, image_url
+             FROM bouquets
+             WHERE generation_request_id = $1`,
+            [requestId]
+        );
+
+        if (!result.rows.length) {
+            return res.json({ status: 'pending' });
         }
-        
-        if (request.imageUrl) {
-            res.json({
-                status: 'completed',
-                imageUrl: request.imageUrl
-            });
-        } else {
-            res.json({
-                status: request.status || 'pending'
-            });
-        }
-        
-    } catch (error) {
-        console.error('❌ Error checking generation status:', error);
-        res.status(500).json({ error: 'Internal server error' });
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('❌ Ошибка статуса:', err);
+        res.status(500).json({ error: 'Ошибка проверки статуса' });
     }
 });
 
-// Проверка статуса заказа
-app.get('/api/check-order/:orderId', (req, res) => {
-    try {
-        const { orderId } = req.params;
-        
-        const orderData = orderStatuses.get(orderId);
-        
-        if (!orderData) {
-            return res.status(404).json({ error: 'Order not found' });
-        }
-        
-        if (orderData.imageUrl) {
-            res.json({
-                status: 'completed',
-                imageUrl: orderData.imageUrl
-            });
-        } else {
-            res.json({
-                status: 'pending'
-            });
-        }
-        
-    } catch (error) {
-        console.error('❌ Error checking order:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
+/*
+========================
+ВЫБОР БУКЕТА
+========================
+*/
 
-// Тестовые эндпоинты
-app.get('/api/test-connection', async (req, res) => {
+app.post('/api/select-bouquet', async (req, res) => {
     try {
-        const response = await axios.get('https://llm.api.cloud.yandex.net/health', {
-            headers: {
-                'Authorization': `Api-Key ${YANDEX_API_KEY}`
-            },
-            timeout: 5000
+        const { bouquetId, token } = req.body;
+
+        // Сбрасываем выбор для всех букетов сессии и выбираем новый
+        await transaction(async (client) => {
+            await client.query(
+                `UPDATE bouquets 
+                 SET is_selected = false
+                 WHERE session_id = (SELECT id FROM sessions WHERE share_token = $1)`,
+                [token]
+            );
+
+            await client.query(
+                `UPDATE bouquets 
+                 SET is_selected = true, selected_at = NOW()
+                 WHERE id = $1`,
+                [bouquetId]
+            );
         });
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Ошибка выбора букета:', err);
+        res.status(500).json({ error: 'Ошибка выбора букета' });
+    }
+});
+
+/*
+========================
+СОЗДАНИЕ ЗАКАЗА
+========================
+*/
+
+app.post('/api/create-order', async (req, res) => {
+    try {
+        const {
+            token,
+            bouquetId,
+            customerName,
+            customerPhone,
+            customerEmail,
+            deliveryAddress,
+            deliveryDate,
+            deliveryComment
+        } = req.body;
+
+        // Валидация
+        if (!customerName || !customerPhone) {
+            return res.status(400).json({ error: 'Имя и телефон обязательны' });
+        }
+
+        const result = await transaction(async (client) => {
+            // Получаем информацию о сессии и букете
+            const sessionInfo = await client.query(
+                `SELECT s.id as session_id, b.id as bouquet_id, b.image_url
+                 FROM sessions s
+                 JOIN bouquets b ON s.id = b.session_id
+                 WHERE s.share_token = $1 AND b.id = $2`,
+                [token, bouquetId]
+            );
+
+            if (sessionInfo.rows.length === 0) {
+                throw new Error('Букет не найден');
+            }
+
+            const session = sessionInfo.rows[0];
+
+            // Создаем заказ
+            const orderResult = await client.query(
+                `INSERT INTO orders (
+                    session_id, bouquet_id, customer_name, customer_phone,
+                    customer_email, delivery_address, delivery_date,
+                    delivery_comment, order_status, source_url
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9)
+                 RETURNING id, order_number`,
+                [
+                    session.session_id,
+                    session.bouquet_id,
+                    customerName,
+                    customerPhone,
+                    customerEmail || null,
+                    deliveryAddress || null,
+                    deliveryDate || null,
+                    deliveryComment || null,
+                    req.get('Referer') || SITE_URL
+                ]
+            );
+
+            // Обновляем статус сессии
+            await client.query(
+                `UPDATE sessions 
+                 SET status = 'ordered', ordered_at = NOW() 
+                 WHERE id = $1`,
+                [session.session_id]
+            );
+
+            return orderResult.rows[0];
+        });
+
+        // Отправляем уведомление в Telegram
+        if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_ADMIN_CHAT_ID) {
+            await sendTelegramNotification({
+                orderNumber: result.order_number,
+                customerName,
+                customerPhone,
+                customerEmail
+            });
+        }
 
         res.json({
             success: true,
-            message: '✅ Соединение с Yandex Cloud установлено',
-            folderId: YANDEX_FOLDER_ID
+            orderId: result.id,
+            orderNumber: result.order_number,
+            message: 'Заказ успешно оформлен!'
         });
 
-    } catch (error) {
-        res.json({
-            success: false,
-            message: '❌ Ошибка соединения с Yandex Cloud',
-            error: error.message
-        });
+    } catch (err) {
+        console.error('❌ Ошибка создания заказа:', err);
+        res.status(500).json({ error: 'Не удалось оформить заказ' });
     }
 });
 
-// Новый тестовый эндпоинт для Cloudinary
-app.get('/api/test-cloudinary', async (req, res) => {
+/*
+========================
+ПОЛУЧЕНИЕ ИНФОРМАЦИИ О ЗАКАЗЕ
+========================
+*/
+
+app.get('/api/order/:orderNumber', async (req, res) => {
     try {
-        // Пробуем загрузить тестовое изображение
-        const testResult = await cloudinary.uploader.upload('https://res.cloudinary.com/demo/image/upload/sample.jpg', {
-            public_id: 'test_' + Date.now(),
-            folder: 'floramind_test'
-        });
-        
-        res.json({
-            success: true,
-            message: '✅ Cloudinary работает',
-            testUrl: testResult.secure_url
-        });
-    } catch (error) {
-        res.json({
-            success: false,
-            message: '❌ Ошибка Cloudinary',
-            error: error.message
-        });
+        const { orderNumber } = req.params;
+
+        const result = await query(
+            `SELECT o.*, s.occasion, s.mood, s.color_preferences, b.image_url
+             FROM orders o
+             JOIN sessions s ON o.session_id = s.id
+             JOIN bouquets b ON o.bouquet_id = b.id
+             WHERE o.order_number = $1`,
+            [orderNumber]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Заказ не найден' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('❌ Ошибка получения заказа:', err);
+        res.status(500).json({ error: 'Ошибка загрузки заказа' });
     }
 });
+
+/*
+========================
+СТАТИСТИКА ДЛЯ АДМИНА
+========================
+*/
+
+app.get('/api/admin/stats', async (req, res) => {
+    try {
+        const stats = await query(`
+            SELECT
+                (SELECT COUNT(*) FROM sessions) as total_sessions,
+                (SELECT COUNT(*) FROM sessions WHERE status = 'completed') as completed_tests,
+                (SELECT COUNT(*) FROM sessions WHERE status = 'ordered') as converted_orders,
+                (SELECT COUNT(*) FROM orders) as total_orders,
+                (SELECT COUNT(*) FROM orders WHERE order_status = 'pending') as pending_orders,
+                (SELECT COUNT(*) FROM orders WHERE order_status = 'confirmed') as confirmed_orders,
+                (SELECT COUNT(*) FROM link_clicks) as total_clicks,
+                (SELECT COUNT(*) FROM bouquets) as total_bouquets
+        `);
+
+        res.json(stats.rows[0]);
+    } catch (err) {
+        console.error('❌ Ошибка статистики:', err);
+        res.status(500).json({ error: 'Ошибка загрузки статистики' });
+    }
+});
+
+/*
+========================
+УВЕДОМЛЕНИЯ В TELEGRAM
+========================
+*/
+
+async function sendTelegramNotification(orderData) {
+    try {
+        const message = `
+🆕 **Новый заказ!** #${orderData.orderNumber}
+
+👤 **Клиент:** ${orderData.customerName}
+📞 **Телефон:** ${orderData.customerPhone}
+${orderData.customerEmail ? `📧 **Email:** ${orderData.customerEmail}` : ''}
+
+🔗 [Посмотреть в админке](${SITE_URL}/admin/order/${orderData.orderNumber})
+        `;
+
+        await axios.post(
+            `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+            {
+                chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
+                text: message,
+                parse_mode: 'Markdown',
+                disable_web_page_preview: false
+            }
+        );
+    } catch (err) {
+        console.error('❌ Ошибка отправки уведомления:', err.message);
+    }
+}
+
+/*
+========================
+ТЕСТОВЫЕ ЭНДПОИНТЫ
+========================
+*/
 
 app.get('/api/test', (req, res) => {
-    res.json({ 
-        status: '✅ FloraAI server is running!',
-        yandexIntegration: 'YandexART API',
-        cloudinaryIntegration: 'Cloudinary',
-        siteUrl: SITE_URL
+    res.json({
+        status: 'FloraAI server working',
+        database: true,
+        yandex: true,
+        cloudinary: true,
+        timestamp: new Date().toISOString()
     });
 });
 
-// Очистка старых запросов
-setInterval(() => {
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    
-    for (const [id, data] of generationRequests.entries()) {
-        if (data.timestamp < oneHourAgo) {
-            generationRequests.delete(id);
-        }
+app.get('/api/test-db', async (req, res) => {
+    try {
+        const result = await query('SELECT NOW() as time');
+        res.json({
+            success: true,
+            time: result.rows[0].time,
+            message: 'Подключение к БД работает'
+        });
+    } catch (err) {
+        res.status(500).json({
+            success: false,
+            error: err.message
+        });
     }
-    
-    for (const [id, data] of orderStatuses.entries()) {
-        if (data.completedAt && data.completedAt < oneHourAgo) {
-            orderStatuses.delete(id);
+});
+
+/*
+========================
+ПРОВЕРКА СТАТУСА ЗАКАЗА ДЛЯ ОЖИДАНИЯ РЕЗУЛЬТАТОВ ИЗ TELEGRAM
+========================
+*/
+
+app.get('/api/check-order/:orderId', async (req, res) => {
+    try {
+        const { orderId } = req.params;
+        
+        console.log(`🔍 Проверка статуса заказа: ${orderId}`);
+        
+        // Ищем сессию по orderId (share_token)
+        const result = await query(
+            `SELECT s.*, 
+                    b.id as bouquet_id, 
+                    b.image_url, 
+                    b.generation_status,
+                    b.generation_request_id
+             FROM sessions s
+             LEFT JOIN bouquets b ON s.id = b.session_id
+             WHERE s.share_token = $1
+             ORDER BY b.created_at DESC
+             LIMIT 1`,
+            [orderId]
+        );
+
+        if (result.rows.length === 0) {
+            console.log(`⚠️ Сессия не найдена для orderId: ${orderId}`);
+            return res.json({ 
+                status: 'pending',
+                exists: false 
+            });
         }
+
+        const session = result.rows[0];
+        console.log(`📊 Статус сессии:`, {
+            status: session.status,
+            generation_status: session.generation_status,
+            has_image: !!session.image_url
+        });
+        
+        // Проверяем статус
+        if (session.image_url) {
+            return res.json({
+                status: 'completed',
+                imageUrl: session.image_url,
+                sessionData: session
+            });
+        } else if (session.generation_status === 'completed' && session.image_url) {
+            return res.json({
+                status: 'completed',
+                imageUrl: session.image_url,
+                sessionData: session
+            });
+        } else if (session.generation_status === 'pending') {
+            return res.json({
+                status: 'generating',
+                message: 'Генерация в процессе'
+            });
+        } else if (session.status === 'completed') {
+            return res.json({
+                status: 'test_completed',
+                message: 'Тест пройден, ожидание генерации'
+            });
+        } else {
+            return res.json({
+                status: 'pending',
+                message: 'Ожидание прохождения теста'
+            });
+        }
+
+    } catch (err) {
+        console.error('❌ Ошибка проверки заказа:', err);
+        res.status(500).json({ error: err.message });
     }
-}, 60 * 60 * 1000);
+});
+
+/*
+========================
+ПОЛУЧЕНИЕ РЕЗУЛЬТАТОВ ТЕСТА ИЗ TELEGRAM БОТА
+========================
+*/
+
+app.post('/api/save-test-results', async (req, res) => {
+    try {
+        const { 
+            telegram_id, 
+            telegram_name,
+            profile, 
+            scores, 
+            ai_prompt,
+            session_token,
+            answers 
+        } = req.body;
+
+        console.log('📥 Получены результаты теста:', { 
+            session_token, 
+            telegram_id,
+            profile 
+        });
+
+        let sessionId;
+
+        // Обновляем сессию с результатами теста
+        const updateResult = await query(
+            `UPDATE sessions SET
+             occasion = $1,
+             recipient_person_type = $2,
+             mood = $3,
+             color_preferences = $4,
+             flower_preferences = $5,
+             telegram_user_id = $6,
+             telegram_username = $7,
+             status = 'completed',
+             completed_at = NOW()
+             WHERE share_token = $8
+             RETURNING id`,
+            [
+                'telegram_test',
+                profile?.form || 'self',
+                profile?.mood || 'happy',
+                profile?.color || 'pastel',
+                profile?.flower || 'mixed',
+                telegram_id ? String(telegram_id) : null,
+                telegram_name || null,
+                session_token
+            ]
+        );
+
+        if (updateResult.rows.length === 0) {
+            console.log('⚠️ Сессия не найдена, создаем новую');
+            // Если сессия не найдена, создаем новую
+            const newSession = await query(
+                `INSERT INTO sessions 
+                 (share_token, telegram_user_id, telegram_username, status, completed_at)
+                 VALUES ($1, $2, $3, 'completed', NOW())
+                 RETURNING id`,
+                [session_token, telegram_id ? String(telegram_id) : null, telegram_name || null]
+            );
+            
+            sessionId = newSession.rows[0].id;
+            console.log('✅ Создана новая сессия с ID:', sessionId);
+        } else {
+            sessionId = updateResult.rows[0].id;
+            console.log('✅ Обновлена существующая сессия с ID:', sessionId);
+        }
+
+        // Сохраняем промпт для генерации
+        const requestId = 'gen_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        
+        await query(
+            `INSERT INTO bouquets
+             (session_id, prompt_text, generation_status, generation_request_id)
+             VALUES($1, $2, 'pending', $3)`,
+            [sessionId, ai_prompt, requestId]
+        );
+
+        console.log('📝 Сохранен промпт для генерации, requestId:', requestId);
+
+        // Запускаем генерацию в фоне
+        generateAndSaveImage(ai_prompt, requestId, session_token).catch(error => {
+            console.error('❌ Ошибка в фоновой генерации:', error);
+        });
+
+        res.json({ 
+            success: true,
+            message: 'Результаты сохранены',
+            requestId: requestId
+        });
+
+    } catch (err) {
+        console.error('❌ Ошибка сохранения результатов:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
-// Корневой маршрут - отдаем index.html из папки public
+/*
+========================
+ГЛАВНАЯ СТРАНИЦА
+========================
+*/
+
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 FloraAI server running on http://${HOST}:${PORT}`);
-  console.log(`📝 Local access: http://localhost:${PORT}`);
-  console.log(`📝 Network access: http://0.0.0.0:${PORT}`);
-  console.log(`📝 Test endpoint: http://localhost:${PORT}/api/test`);
-  console.log(`📝 Cloudinary test: http://localhost:${PORT}/api/test-cloudinary`);
-  console.log(`🔗 YandexART API: ${YANDEX_API_KEY ? 'Configured' : 'Not configured'}`);
+app.get('/quiz/:token', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'quiz.html'));
+});
+
+app.get('/order/:orderNumber', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'order.html'));
+});
+
+/*
+========================
+ЗАПУСК СЕРВЕРА
+========================
+*/
+
+app.listen(PORT, () => {
+    console.log(`
+🚀 FloraAI server running
+
+📡 URL: http://localhost:3001
+🔌 PORT: ${PORT}
+
+📋 Endpoints:
+   POST   /api/create-session       - Создать сессию
+   POST   /api/save-answers         - Сохранить ответы
+   POST   /api/generate             - Сгенерировать букет
+   GET    /api/session-results/:token - Получить результаты
+   POST   /api/select-bouquet       - Выбрать букет
+   POST   /api/create-order         - Создать заказ
+   GET    /api/order/:number        - Информация о заказе
+   GET    /api/admin/stats          - Статистика
+   GET    /api/test                 - Проверка сервера
+   GET    /api/test-db              - Проверка БД
+
+📊 База данных: Timeweb PostgreSQL
+   ${process.env.DATABASE_URL?.replace(/:[^:]*@/, ':*****@')}
+`);
 });

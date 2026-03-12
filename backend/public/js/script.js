@@ -425,24 +425,120 @@ function handleSendLink() {
 
 // Функция для периодической проверки результатов
 function startPollingForResults() {
+    console.log('🔄 Начинаем опрос результатов для orderId:', state.orderId);
+    
     const pollInterval = setInterval(async () => {
+        // Если состояние изменилось, прекращаем опрос
         if (state.currentStep !== 'waitingForRecipient') {
+            console.log('⏹️ Состояние изменилось, прекращаем опрос');
             clearInterval(pollInterval);
             return;
         }
         
         try {
+            console.log('📡 Проверка статуса заказа:', state.orderId);
             const response = await fetch(`${SITE_URL}/api/check-order/${state.orderId}`);
+            const data = await response.json();
+            
+            console.log('📊 Статус ответа:', data);
+            
+            if (data.status === 'completed' && data.imageUrl) {
+                console.log('✅ Получен готовый результат!');
+                clearInterval(pollInterval);
+                
+                // Обновляем статус в индикаторе
+                const statusSpan = document.querySelector('.waiting-status');
+                if (statusSpan) {
+                    statusSpan.textContent = 'получены результаты';
+                    statusSpan.style.color = '#00b894';
+                }
+                
+                // Показываем сообщение о начале генерации
+                setTimeout(() => {
+                    const waitingIndicator = document.getElementById('waitingIndicator');
+                    if (waitingIndicator) {
+                        waitingIndicator.remove();
+                    }
+                    
+                    // Добавляем сообщение о генерации
+                    addMessage(`Отлично! Я получила все ваши ответы🌸 Сейчас начинаю генерацию вашего уникального букета...`, false);
+                    
+                    setTimeout(() => {
+                        addMessage(`✅ Запрос на генерацию отправлен! Искусственный интеллект создает ваш букет. Это займет около 30 секунд.`, false);
+                        
+                        // Показываем новый индикатор ожидания генерации
+                        showGenerationWaitingIndicator();
+                        
+                        // Запускаем проверку статуса генерации
+                        startGenerationPolling(state.orderId);
+                    }, 1500);
+                }, 1000);
+            } else if (data.status === 'generating') {
+                // Если тест пройден, но генерация еще идет
+                const statusSpan = document.querySelector('.waiting-status');
+                if (statusSpan) {
+                    statusSpan.textContent = 'генерация...';
+                    statusSpan.style.color = '#f39c12';
+                }
+            } else {
+                console.log('⏳ Статус ожидания:', data.status);
+            }
+            
+        } catch (error) {
+            console.error('Polling error:', error);
+        }
+    }, 3000); // Проверяем каждые 3 секунды
+}
+
+// Новая функция для проверки статуса генерации
+function startGenerationPolling(orderId) {
+    const pollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${SITE_URL}/api/check-order/${orderId}`);
             const data = await response.json();
             
             if (data.status === 'completed' && data.imageUrl) {
                 clearInterval(pollInterval);
-                handleRecipientTestComplete(data.imageUrl);
+                
+                const waitingIndicator = document.getElementById('generationWaitingIndicator');
+                if (waitingIndicator) {
+                    waitingIndicator.remove();
+                }
+                
+                showGeneratedBouquet(data.imageUrl);
+                
+                // После показа букета задаем вопрос о заказе
+                setTimeout(() => {
+                    askOrderQuestion();
+                }, 2000);
             }
         } catch (error) {
-            console.error('Polling error:', error);
+            console.error('Generation polling error:', error);
         }
     }, 3000);
+}
+
+// Новая функция для показа индикатора ожидания генерации
+function showGenerationWaitingIndicator() {
+    const waitingDiv = document.createElement('div');
+    waitingDiv.className = 'waiting-indicator';
+    waitingDiv.id = 'generationWaitingIndicator';
+    waitingDiv.innerHTML = `
+        <div class="waiting-content">
+            <div class="waiting-spinner">
+                <i class="fas fa-palette fa-spin"></i>
+            </div>
+            <div class="waiting-text">
+                <h3>🎨 Генерация букета...</h3>
+                <p>Статус: <span class="waiting-status" style="color: #f39c12;">создание</span></p>
+                <p class="waiting-order-id">ID заказа: ${state.orderId}</p>
+                <p class="waiting-info">Нейросеть создает ваш уникальный букет</p>
+            </div>
+        </div>
+    `;
+    
+    chatMessages.appendChild(waitingDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 // Функция для обработки завершения теста получателем
@@ -452,12 +548,30 @@ function handleRecipientTestComplete(imageUrl) {
     setTimeout(() => {
         removeTypingIndicator(typingIndicator);
         
-        showGeneratedBouquet(imageUrl);
+        // Удаляем индикатор ожидания
+        const waitingIndicator = document.getElementById('waitingIndicator');
+        if (waitingIndicator) {
+            waitingIndicator.remove();
+        }
         
-        creationProgress.style.display = 'none';
+        // Добавляем сообщение о генерации
+        addMessage(`Отлично! Я получила все ваши ответы🌸 Сейчас начинаю генерацию вашего уникального букета...`, false);
         
-        state.currentStep = 'completed';
-        state.currentImageUrl = imageUrl;
+        setTimeout(() => {
+            addMessage(`✅ Запрос на генерацию отправлен! Искусственный интеллект создает ваш букет. Это займет около 30 секунд.`, false);
+            
+            // Показываем готовое изображение
+            showGeneratedBouquet(imageUrl);
+            
+            creationProgress.style.display = 'none';
+            state.currentStep = 'completed';
+            state.currentImageUrl = imageUrl;
+            
+            // После показа букета задаем вопрос о заказе
+            setTimeout(() => {
+                askOrderQuestion();
+            }, 2000);
+        }, 1500);
     }, 1000);
 }
 
@@ -494,16 +608,24 @@ function showWaitingIndicator() {
                 <i class="fas fa-spinner fa-spin"></i>
             </div>
             <div class="waiting-text">
-                <h3>Ожидаем прохождения теста</h3>
+                <h3>⏳ Ожидаем прохождения теста в Telegram</h3>
                 <p>Статус: <span class="waiting-status">ожидание</span></p>
-                <p class="waiting-order-id">ID заказа: ${state.orderId}</p>
-                <p class="waiting-bot-info">Бот: ${TELEGRAM_BOT_LINK}</p>
+                <p class="waiting-order-id">🆔 ID заказа: ${state.orderId}</p>
+                <p class="waiting-bot-info">🤖 Бот: ${TELEGRAM_BOT_LINK}</p>
+                <p class="waiting-instruction">
+                    👆 Перейдите в бота и пройдите тест, чтобы увидеть ваш уникальный букет
+                </p>
             </div>
         </div>
     `;
     
     chatMessages.appendChild(waitingDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // Добавляем пояснительное сообщение
+    setTimeout(() => {
+        addMessage(`🔔 Я буду автоматически проверять статус каждые 3 секунды. Как только тест будет пройден, статус изменится на "получены результаты" и начнется генерация букета.`, false);
+    }, 1000);
 }
 
 // Функция обработки выбора опции в вопросах
@@ -1010,7 +1132,7 @@ function connectToFlorist() {
         orderDetails += `\n\n🔗 Ссылка на изображение букета: ${state.currentImageUrl}`;
     }
 
-    orderDetails += `\n\nИзображение букета сгенерировано через YandexART. Флорист может воссоздать эту композицию с живыми цветами.`;
+    orderDetails += `\n\nИзображение букета сгенерировано успешно! Флорист может воссоздать эту композицию с живыми цветами.`;
 
     addMessage("Отлично! Сейчас я перенаправлю вас в наш Telegram-чат с флористом, где вы сможете уточнить детали заказа и указать адрес доставки. 🌸", false);
 

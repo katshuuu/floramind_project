@@ -616,3 +616,87 @@
          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
      }
  }
+
+ /* Индикатор ожидания */
+.waiting-indicator {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 20px;
+    padding: 30px;
+    margin: 20px 0;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+}
+
+.waiting-content {
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.waiting-spinner {
+    font-size: 48px;
+    color: #6c5ce7;
+    margin-bottom: 20px;
+}
+
+.waiting-spinner i {
+    animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.waiting-text h3 {
+    color: #2d3436;
+    margin-bottom: 15px;
+    font-size: 1.5em;
+}
+
+.waiting-status {
+    font-weight: bold;
+    padding: 5px 15px;
+    border-radius: 20px;
+    display: inline-block;
+    margin: 10px 0;
+}
+
+.waiting-status.ожидание {
+    background: #fdcb6e;
+    color: #2d3436;
+}
+
+.waiting-status.получены-результаты {
+    background: #00b894;
+    color: white;
+}
+
+.waiting-order-id {
+    font-size: 1.2em;
+    color: #6c5ce7;
+    font-weight: bold;
+    margin: 10px 0;
+}
+
+.waiting-bot-info {
+    background: white;
+    padding: 10px;
+    border-radius: 10px;
+    margin: 15px 0;
+}
+
+.waiting-bot-info a {
+    color: #6c5ce7;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.waiting-bot-info a:hover {
+    text-decoration: underline;
+}
+
+.waiting-instruction {
+    color: #636e72;
+    font-size: 0.9em;
+    margin-top: 15px;
+}
